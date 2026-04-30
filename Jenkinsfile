@@ -3,19 +3,26 @@ pipeline {
 
   environment {
     DOCKER_IMAGE = "sanjay5raj/cicd-demo"
+    // Use forward slashes for Windows compatibility
+    DOCKER_BUILDKIT = "1"
   }
 
   stages {
 
     stage('Clone') {
       steps {
-        git branch: 'main', url: 'https://github.com/dm-gamer/cicd-demo.git'
+        git branch: 'main', 
+            url: 'https://github.com/dm-gamer/cicd-demo.git'
       }
     }
 
     stage('Build Docker Image') {
       steps {
-        bat 'docker build -t %DOCKER_IMAGE%:latest .'
+        // Using Windows batch command with proper variable expansion
+        bat """
+          docker build -t ${DOCKER_IMAGE}:latest .
+          docker tag ${DOCKER_IMAGE}:latest ${DOCKER_IMAGE}:${BUILD_NUMBER}
+        """
       }
     }
 
@@ -26,23 +33,47 @@ pipeline {
           usernameVariable: 'DOCKER_USER',
           passwordVariable: 'DOCKER_PASS'
         )]) {
-          bat 'echo %DOCKER_PASS% | docker login -u %DOCKER_USER% --password-stdin'
-          bat 'docker push %DOCKER_IMAGE%:latest'
+          bat """
+            echo ${DOCKER_PASS} | docker login -u ${DOCKER_USER} --password-stdin https://index.docker.io/v1/
+            docker push ${DOCKER_IMAGE}:latest
+            docker push ${DOCKER_IMAGE}:${BUILD_NUMBER}
+          """
         }
       }
     }
 
-    stage('Deploy to Kubernetes') {
+    stage('Update Kubernetes Deployment') {
       steps {
-        bat 'kubectl apply -f k8s/deployment.yaml'
-        bat 'kubectl rollout restart deployment/cicd-demo'
+        // Update the image tag in deployment.yaml before applying
+        bat """
+          powershell -Command "(Get-Content k8s/deployment.yaml) -replace 'image: .*', 'image: ${DOCKER_IMAGE}:${BUILD_NUMBER}' | Set-Content k8s/deployment.yaml"
+          kubectl apply -f k8s/deployment.yaml
+          kubectl rollout status deployment/cicd-demo
+        """
+      }
+    }
+
+    stage('Verify Deployment') {
+      steps {
+        bat 'kubectl get pods'
+        bat 'kubectl get deployment cicd-demo'
       }
     }
 
   }
 
   post {
-    success { echo 'Pipeline succeeded! App deployed.' }
-    failure { echo 'Pipeline failed. Check logs.' }
+    success { 
+      echo 'Pipeline succeeded! App deployed successfully.'
+      // Optional: Clean up old images
+      bat 'docker system prune -f'
+    }
+    failure { 
+      echo 'Pipeline failed. Check the logs above for details.'
+    }
+    always {
+      // Optional: Logout from Docker Hub
+      bat 'docker logout'
+    }
   }
 }
