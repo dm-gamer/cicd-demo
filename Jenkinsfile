@@ -3,7 +3,7 @@ pipeline {
 
   environment {
     DOCKER_IMAGE = "sanjay5raj/cicd-demo"
-    KUBECONFIG = "C:\\ProgramData\\Jenkins\\.jenkins\\config"
+    // Remove the incorrect KUBECONFIG path
   }
 
   stages {
@@ -17,8 +17,10 @@ pipeline {
 
     stage('Build Docker Image') {
       steps {
-        bat 'docker build -t %DOCKER_IMAGE%:latest .'
-        bat 'docker tag %DOCKER_IMAGE%:latest %DOCKER_IMAGE%:%BUILD_NUMBER%'
+        bat """
+          docker build -t ${DOCKER_IMAGE}:latest .
+          docker tag ${DOCKER_IMAGE}:latest ${DOCKER_IMAGE}:${BUILD_NUMBER}
+        """
       }
     }
 
@@ -29,25 +31,56 @@ pipeline {
           usernameVariable: 'DOCKER_USER',
           passwordVariable: 'DOCKER_PASS'
         )]) {
-          bat 'echo %DOCKER_PASS%| docker login -u %DOCKER_USER% --password-stdin'
-          bat 'docker push %DOCKER_IMAGE%:latest'
-          bat 'docker push %DOCKER_IMAGE%:%BUILD_NUMBER%'
+          bat """
+            echo ${DOCKER_PASS} | docker login -u ${DOCKER_USER} --password-stdin https://index.docker.io/v1/
+            docker push ${DOCKER_IMAGE}:latest
+            docker push ${DOCKER_IMAGE}:${BUILD_NUMBER}
+          """
+        }
+      }
+    }
+
+    stage('Setup Kubernetes Config') {
+      steps {
+        script {
+          // Method 1: Using kubeconfig file from Jenkins credentials
+          withCredentials([file(credentialsId: 'kubeconfig', variable: 'KUBECONFIG_FILE')]) {
+            bat """
+              set KUBECONFIG=${KUBECONFIG_FILE}
+              kubectl config view
+              kubectl cluster-info
+            """
+          }
         }
       }
     }
 
     stage('Update Kubernetes Deployment') {
       steps {
-        bat 'powershell -Command "(Get-Content k8s\\deployment.yaml) -replace \'image:.*\', \'image: %DOCKER_IMAGE%:%BUILD_NUMBER%\' | Set-Content k8s\\deployment.yaml"'
-        bat 'kubectl apply -f k8s/deployment.yaml --validate=false'
-        bat 'kubectl rollout status deployment/cicd-demo'
+        script {
+          withCredentials([file(credentialsId: 'kubeconfig', variable: 'KUBECONFIG_FILE')]) {
+            bat """
+              set KUBECONFIG=${KUBECONFIG_FILE}
+              powershell -Command "(Get-Content k8s\\deployment.yaml) -replace 'image:.*', 'image: ${DOCKER_IMAGE}:${BUILD_NUMBER}' | Set-Content k8s\\deployment.yaml"
+              kubectl apply -f k8s/deployment.yaml
+              kubectl rollout status deployment/cicd-demo
+            """
+          }
+        }
       }
     }
 
     stage('Verify Deployment') {
       steps {
-        bat 'kubectl get pods'
-        bat 'kubectl get deployment cicd-demo'
+        script {
+          withCredentials([file(credentialsId: 'kubeconfig', variable: 'KUBECONFIG_FILE')]) {
+            bat """
+              set KUBECONFIG=${KUBECONFIG_FILE}
+              kubectl get pods
+              kubectl get deployment cicd-demo
+            """
+          }
+        }
       }
     }
 
