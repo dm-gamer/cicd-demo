@@ -3,26 +3,21 @@ pipeline {
 
   environment {
     DOCKER_IMAGE = "sanjay5raj/cicd-demo"
-    // Use forward slashes for Windows compatibility
-    DOCKER_BUILDKIT = "1"
   }
 
   stages {
 
     stage('Clone') {
       steps {
-        git branch: 'main', 
+        git branch: 'main',
             url: 'https://github.com/dm-gamer/cicd-demo.git'
       }
     }
 
     stage('Build Docker Image') {
       steps {
-        // Using Windows batch command with proper variable expansion
-        bat """
-          docker build -t ${DOCKER_IMAGE}:latest .
-          docker tag ${DOCKER_IMAGE}:latest ${DOCKER_IMAGE}:${BUILD_NUMBER}
-        """
+        bat "docker build -t %DOCKER_IMAGE%:latest ."
+        bat "docker tag %DOCKER_IMAGE%:latest %DOCKER_IMAGE%:%BUILD_NUMBER%"
       }
     }
 
@@ -33,23 +28,18 @@ pipeline {
           usernameVariable: 'DOCKER_USER',
           passwordVariable: 'DOCKER_PASS'
         )]) {
-          bat """
-            echo ${DOCKER_PASS} | docker login -u ${DOCKER_USER} --password-stdin https://index.docker.io/v1/
-            docker push ${DOCKER_IMAGE}:latest
-            docker push ${DOCKER_IMAGE}:${BUILD_NUMBER}
-          """
+          bat 'echo %DOCKER_PASS%| docker login -u %DOCKER_USER% --password-stdin'
+          bat 'docker push %DOCKER_IMAGE%:latest'
+          bat 'docker push %DOCKER_IMAGE%:%BUILD_NUMBER%'
         }
       }
     }
 
     stage('Update Kubernetes Deployment') {
       steps {
-        // Update the image tag in deployment.yaml before applying
-        bat """
-          powershell -Command "(Get-Content k8s/deployment.yaml) -replace 'image: .*', 'image: ${DOCKER_IMAGE}:${BUILD_NUMBER}' | Set-Content k8s/deployment.yaml"
-          kubectl apply -f k8s/deployment.yaml
-          kubectl rollout status deployment/cicd-demo
-        """
+        bat 'powershell -Command "(Get-Content k8s/deployment.yaml) -replace \'image:.*\', \'image: %DOCKER_IMAGE%:%BUILD_NUMBER%\' | Set-Content k8s/deployment.yaml"'
+        bat 'kubectl apply -f k8s/deployment.yaml'
+        bat 'kubectl rollout status deployment/cicd-demo'
       }
     }
 
@@ -63,16 +53,14 @@ pipeline {
   }
 
   post {
-    success { 
+    success {
       echo 'Pipeline succeeded! App deployed successfully.'
-      // Optional: Clean up old images
       bat 'docker system prune -f'
     }
-    failure { 
+    failure {
       echo 'Pipeline failed. Check the logs above for details.'
     }
     always {
-      // Optional: Logout from Docker Hub
       bat 'docker logout'
     }
   }
