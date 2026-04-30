@@ -15,6 +15,7 @@ spec:
       containers:
         - name: cicd-demo
           image: sanjay5raj/cicd-demo:latest
+          imagePullPolicy: Always  
           ports:
             - containerPort: 3000
 ---
